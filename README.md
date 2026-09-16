@@ -1,6 +1,6 @@
 # Welcome Landing
 
-Welcome Landing is a MyBB 1.8.x plugin that replaces the stock guest login entry point with a standalone, branded landing page. It provides a full-screen user-specified random background, modal login form, optional guest redirects, lost-password/CAPTCHA compatibility and Admin CP settings for common operational behavior.
+Welcome Landing is a MyBB 1.8.x plugin that replaces the stock guest login entry point with a standalone, branded landing page. It provides a user-specified random full-screen background, modal login form, optional guest redirects, lost-password/CAPTCHA compatibility and Admin CP settings for common operational behavior.
 
 The landing page is intentionally standalone. It does not use the normal MyBB header and footer by default because the purpose of the plugin is to provide a distinct entry experience for private or member-only communities.
 
@@ -13,7 +13,7 @@ The landing page is intentionally standalone. It does not use the normal MyBB he
 - Safe redirect handling for guest deep links.
 - Generic MyBB login route redirect for `member.php?action=login`.
 - Lost-password and CAPTCHA route compatibility.
-- Rotating full-screen background images.
+- User-specified random full-screen background images.
 - Admin CP settings group for operational options.
 - Language files for public copy and Admin CP copy.
 - Plugin-managed Global Templates for landing markup.
