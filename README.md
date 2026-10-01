@@ -1,6 +1,6 @@
 # Welcome Landing
 
-Welcome Landing is a MyBB 1.8.x plugin that replaces the stock guest login entry point with a standalone, branded landing page. It provides a full-screen rotating background, modal login form, optional guest redirects, lost-password/CAPTCHA compatibility and Admin CP settings for common operational behavior.
+Welcome Landing is a MyBB 1.8.x plugin that replaces the stock guest login entry point with a standalone, branded landing page. It provides a user-specified random full-screen background, modal login form, optional guest redirects, lost-password/CAPTCHA compatibility and Admin CP settings for common operational behavior.
 
 The landing page is intentionally standalone. It does not use the normal MyBB header and footer by default because the purpose of the plugin is to provide a distinct entry experience for private or member-only communities.
 
@@ -15,7 +15,7 @@ Login and recovery no longer wait for background images to load. The background 
 - Safe redirect handling for guest deep links.
 - Generic MyBB login route redirect for `member.php?action=login`.
 - Lost-password and CAPTCHA route compatibility.
-- Rotating full-screen background images.
+- User-specified random full-screen background images.
 - Admin CP settings group for operational options.
 - Language files for public copy and Admin CP copy.
 - Plugin-managed Global Templates for landing markup.
@@ -198,6 +198,9 @@ Missing-template fallback and alternate template-comment settings have source/mo
 
 The plugin depends on standard MyBB guest routes for login, lost-password recovery and CAPTCHA generation. Sites with aggressive custom rewrites, unusual cookie domains or other login/redirect plugins should test the guest flow carefully on a development copy before production use.
 
+<<<<<<< HEAD
 Generic-login redirection is intended to work independently of the guest gatekeeper. Behavior with the gatekeeper disabled has not been runtime-tested. Test this configuration on a development copy before production use; source/model checks do not establish MyBB runtime behavior.
 
+=======
+>>>>>>> 77e6068300cfd1a30e9624fcefba1a5dc1e4bbbf
 Do not edit MyBB core files for this plugin.
