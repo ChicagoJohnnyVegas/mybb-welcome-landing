@@ -198,9 +198,6 @@ Missing-template fallback and alternate template-comment settings have source/mo
 
 The plugin depends on standard MyBB guest routes for login, lost-password recovery and CAPTCHA generation. Sites with aggressive custom rewrites, unusual cookie domains or other login/redirect plugins should test the guest flow carefully on a development copy before production use.
 
-<<<<<<< HEAD
 Generic-login redirection is intended to work independently of the guest gatekeeper. Behavior with the gatekeeper disabled has not been runtime-tested. Test this configuration on a development copy before production use; source/model checks do not establish MyBB runtime behavior.
 
-=======
->>>>>>> 77e6068300cfd1a30e9624fcefba1a5dc1e4bbbf
 Do not edit MyBB core files for this plugin.
