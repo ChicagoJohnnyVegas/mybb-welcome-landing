@@ -20,5 +20,9 @@ $l['welcome_landing_about_modal_body'] = '
 <p>Site administrators can customize this message in the language file or replace the landing page templates and images to match their community.</p>';
 $l['welcome_landing_username_placeholder'] = 'Username';
 $l['welcome_landing_password_placeholder'] = 'Password';
+$l['welcome_landing_username_label'] = 'Username';
+$l['welcome_landing_password_label'] = 'Password';
+$l['welcome_landing_dismiss_modal'] = 'Close';
+$l['welcome_landing_captcha_label'] = 'Image verification';
 $l['welcome_landing_error_missing_credentials'] = 'Please enter both username and password.';
 $l['welcome_landing_error_invalid_credentials'] = 'Invalid username or password.';

@@ -1,4 +1,5 @@
-.InitialHide
+/* Compatibility for stored shells from before progressive page visibility. */
+html.InitialHide
 {
-	display: none;
+	display: block;
 }

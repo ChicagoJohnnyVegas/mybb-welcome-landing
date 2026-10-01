@@ -1,73 +1,28 @@
 # Third-Party Notices
 
-Welcome Landing includes third-party client-side libraries in the `landing/` asset folder. These notices summarize the bundled assets and their license information.
+Welcome Landing ships the following pinned client-side libraries locally. Visitors do not need a CDN connection to load them.
 
-## Bootstrap
+## Bootstrap 5.3.8
 
-Files:
+- Files: `landing/css/bootstrap.css`, `bootstrap.min.css`, `bootstrap.rtl.min.css`, their source maps, and `landing/js/bootstrap.js`, `bootstrap.min.js` and their source maps.
+- Copyright 2011-2025 The Bootstrap Authors.
+- License: MIT; full notice in `landing/LICENSE-bootstrap.txt` and copyright headers in the distributed files.
+- Source: [Bootstrap v5.3.8](https://github.com/twbs/bootstrap/tree/v5.3.8/dist).
+- These are the standard non-bundle builds. Modal and Collapse do not require Popper. Custom dropdowns, tooltips or popovers may require additional dependencies; they are not part of the supplied page.
 
-- `landing/css/bootstrap.css`
-- `landing/css/bootstrap.min.css`
-- `landing/css/bootstrap-theme.css`
-- `landing/css/bootstrap-theme.min.css`
-- `landing/js/bootstrap.js`
-- `landing/js/bootstrap.min.js`
-- `landing/fonts/glyphicons-halflings-regular.*`
+## jQuery 3.7.1
 
-Bundled version: Bootstrap v3.3.1
+- File: `landing/js/jquery.js` (full-featured minified build, including AJAX).
+- Copyright OpenJS Foundation and other contributors.
+- License: MIT; full notice in `landing/LICENSE-jquery.txt`.
+- Source: [official jQuery 3.7.1 distribution](https://code.jquery.com/jquery-3.7.1.min.js).
+- Retained for MyBB CAPTCHA helpers and the landing script. Bootstrap uses its native API with its jQuery bridge disabled to avoid replacing MyBB's modal plugin.
+- jQuery 3.x receives critical security patches and bug fixes; 4.x is the current branch. The 3.x choice is a deliberate MyBB compatibility boundary, not a claim that it is the latest major release. See [jQuery support policy](https://jquery.com/support/).
 
-Copyright 2011-2014 Twitter, Inc.
+## Removed Legacy Assets
 
-License: MIT
-
-Source/license reference from bundled files:
-
-```text
-Bootstrap v3.3.1 (http://getbootstrap.com)
-Copyright 2011-2014 Twitter, Inc.
-Licensed under MIT
-```
-
-The bundled Bootstrap CSS also includes Normalize.css v3.0.2, licensed under MIT.
-
-## jQuery
-
-File:
-
-- `landing/js/jquery.js`
-
-Bundled version: jQuery v1.11.1
-
-Copyright 2005, 2014 jQuery Foundation, Inc.
-
-License: MIT
-
-Source/license reference from bundled file:
-
-```text
-jQuery v1.11.1 | (c) 2005, 2014 jQuery Foundation, Inc. | jquery.org/license
-```
-
-## waitForImages jQuery Plugin
-
-File:
-
-- `landing/js/jquery.waitforimages.min.js`
-
-Bundled file date: 2014-11-14
-
-Copyright: Alexander Dickson / Alex Dickson
-
-License: MIT
-
-The bundled minified file identifies itself as:
-
-```text
-waitForImages jQuery Plugin 2014-11-14
-```
-
-Upstream package and related listings identify `jquery.waitforimages` / `waitForImages` as MIT licensed.
+Version 1.32 no longer ships Bootstrap 3 theme styles/maps, Glyphicons fonts or waitForImages. When upgrading from v1.21, review custom templates and remove obsolete references before retiring their deployed files. Overlay uploads do not delete old server files automatically; follow the exact cleanup list in UPGRADE.md.
 
 ## Project License
 
-Welcome Landing itself is released under the MIT License. See `LICENSE` for details.
+Welcome Landing is MIT licensed; see `LICENSE`. The customized Big Picture stylesheet retains its original Start Bootstrap Apache 2.0 header. Upstream source and license references are preserved in the distributed assets.

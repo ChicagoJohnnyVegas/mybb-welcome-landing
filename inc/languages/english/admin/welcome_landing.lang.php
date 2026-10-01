@@ -19,13 +19,13 @@ $l['welcome_landing_setting_redirect_generic_login_title'] = 'Redirect generic M
 $l['welcome_landing_setting_redirect_generic_login_desc'] = 'Redirect member.php?action=login to the Welcome Landing page for guests.';
 
 $l['welcome_landing_setting_logged_in_redirect_title'] = 'Logged-in redirect path';
-$l['welcome_landing_setting_logged_in_redirect_desc'] = 'Site-relative path used when a logged-in user visits the Welcome Landing page.';
+$l['welcome_landing_setting_logged_in_redirect_desc'] = 'Path relative to the forum root, such as /index.php. Do not include the forum subdirectory or a full URL.';
 
 $l['welcome_landing_setting_asset_path_title'] = 'Asset URL path';
-$l['welcome_landing_setting_asset_path_desc'] = 'URL path for Welcome Landing CSS and JavaScript assets.';
+$l['welcome_landing_setting_asset_path_desc'] = 'URL path relative to the forum root for CSS and JavaScript assets, normally /landing.';
 
 $l['welcome_landing_setting_image_url_path_title'] = 'Image URL path';
-$l['welcome_landing_setting_image_url_path_desc'] = 'URL path for rotating Welcome Landing background images.';
+$l['welcome_landing_setting_image_url_path_desc'] = 'URL path relative to the forum root for background images, normally /landing/img/landing.';
 
 $l['welcome_landing_setting_image_dir_path_title'] = 'Image filesystem path';
 $l['welcome_landing_setting_image_dir_path_desc'] = 'Filesystem path relative to the forum root for rotating Welcome Landing background images.';

@@ -66,7 +66,7 @@ $GLOBALS['WEL_GUEST_WHITELIST_PREFIXES'] = array(
 
 // Member actions that must be allowed through for login and recovery
 $GLOBALS['WEL_ALLOWED_MEMBER_ACTIONS'] = array(
-    'do_login', 'login', 'lostpw', 'resetpassword', 'logout', 'do_logout'
+    'do_login', 'login', 'lostpw', 'do_lostpw', 'resetpassword', 'logout', 'do_logout'
 );
 
 // Where to send logged-in users who hit the landing page
@@ -78,7 +78,6 @@ define('WEL_LOGGED_IN_REDIRECT_NORM', '/' . ltrim(WEL_LOGGED_IN_REDIRECT, '/'));
 define('WEL_SETTING_GROUP_NAME', 'welcome_landing');
 define('WEL_SETTING_NAME_PREFIX', 'welcome_landing_');
 define('WEL_TEMPLATE_PREFIX', 'welcome_landing_');
-define('WEL_TEMPLATE_MIGRATION_VERSION', 1);
 
 $GLOBALS['WEL_SETTINGS'] = array(
     'enable_index_guest_redirect' => array(
@@ -109,7 +108,7 @@ $GLOBALS['WEL_SETTINGS'] = array(
         'title_key'       => 'welcome_landing_setting_logged_in_redirect_title',
         'description_key' => 'welcome_landing_setting_logged_in_redirect_desc',
         'title'           => 'Logged-in redirect path',
-        'description'     => 'Site-relative path used when a logged-in user visits the Welcome Landing page.',
+        'description'     => 'Path relative to the forum root, such as /index.php. Do not include the forum subdirectory or a full URL.',
         'optionscode' => 'text',
         'value'       => WEL_LOGGED_IN_REDIRECT_NORM,
     ),
@@ -117,7 +116,7 @@ $GLOBALS['WEL_SETTINGS'] = array(
         'title_key'       => 'welcome_landing_setting_asset_path_title',
         'description_key' => 'welcome_landing_setting_asset_path_desc',
         'title'           => 'Asset URL path',
-        'description'     => 'URL path for Welcome Landing CSS and JavaScript assets.',
+        'description'     => 'URL path relative to the forum root for CSS and JavaScript assets, normally /landing.',
         'optionscode' => 'text',
         'value'       => WEL_ASSET_PATH_NORM,
     ),
@@ -125,7 +124,7 @@ $GLOBALS['WEL_SETTINGS'] = array(
         'title_key'       => 'welcome_landing_setting_image_url_path_title',
         'description_key' => 'welcome_landing_setting_image_url_path_desc',
         'title'           => 'Image URL path',
-        'description'     => 'URL path for rotating Welcome Landing background images.',
+        'description'     => 'URL path relative to the forum root for background images, normally /landing/img/landing.',
         'optionscode' => 'text',
         'value'       => WEL_IMAGE_URL_REL_NORM,
     ),
@@ -186,10 +185,10 @@ function welcome_landing_info()
     return array(
         "name"          => welcome_landing_admin_lang('welcome_landing_plugin_name', 'Welcome Landing'),
         "description"   => $description,
-        "website"       => "",
+        "website"       => "https://github.com/ChicagoJohnnyVegas/mybb-welcome-landing",
         "author"        => "\"Chicago\" JohnnyVegas",
         "authorsite"    => "",
-        "version"       => "1.21",
+        "version"       => "1.32",
         "compatibility" => "18*"
     );
 }
@@ -219,11 +218,19 @@ function welcome_landing_uninstall()
 {
     global $db;
 
-    $settingPrefix = $db->escape_string(WEL_SETTING_NAME_PREFIX);
-    $settingGroupName = $db->escape_string(WEL_SETTING_GROUP_NAME);
+    foreach (array_keys($GLOBALS['WEL_SETTINGS']) as $key) {
+        $name = $db->escape_string(WEL_SETTING_NAME_PREFIX . $key);
+        $db->delete_query('settings', "name='{$name}'");
+    }
 
-    $db->delete_query('settings', "name LIKE '{$settingPrefix}%'");
-    $db->delete_query('settinggroups', "name='{$settingGroupName}'");
+    $gid = welcome_landing_get_setting_group_id();
+    if ($gid) {
+        $query = $db->simple_select('settings', 'sid', "gid='{$gid}'", array('limit' => 1));
+        // Do not orphan unrelated settings added to the plugin's group.
+        if (!$db->num_rows($query)) {
+            $db->delete_query('settinggroups', "gid='{$gid}'");
+        }
+    }
     welcome_landing_delete_templates();
 
     rebuild_settings();
@@ -335,56 +342,57 @@ function welcome_landing_default_templates()
 {
     return array(
         'nav_item_forgot' => <<<'HTML'
-                        <li><a href="{$forgotUrl}">{$forgotText}</a></li>
+                        <li class="nav-item"><a class="nav-link" href="{$forgotUrl}">{$forgotText}</a></li>
 HTML
         ,
         'nav_item_about' => <<<'HTML'
-                        <li><a data-toggle="modal" href="#welcome_about">{$aboutLinkText}</a></li>
+                        <li class="nav-item"><a class="nav-link" data-bs-toggle="modal" href="#welcome_about">{$aboutLinkText}</a></li>
 HTML
         ,
         'login_forgot_link' => <<<'HTML'
-                                            <span class="col-md-12 text-right"><a href="{$forgotUrl}">{$forgotText}</a></span>
+                                            <span class="col-md-12 text-end"><a href="{$forgotUrl}">{$forgotText}</a></span>
 HTML
         ,
         'login_modal' => <<<'HTML'
         <div class="container">
             <div class="row">
-                <div id="welcome_login" tabindex="-1" class="modal fade">
+                <div id="welcome_login" tabindex="-1" class="modal fade" aria-labelledby="welcome_login_title">
                     <div class="modal-dialog">
                         <div class="modal-content">
                             <div class="modal-header">
-                                <button class="close" aria-hidden="true" type="button" data-dismiss="modal">x</button>
-                                <h4 class="modal-title">{$loginTitle}</h4>
+                                <button class="close" aria-label="{$dismissText}" type="button" data-bs-dismiss="modal"><span aria-hidden="true">x</span></button>
+                                <h2 class="modal-title" id="welcome_login_title">{$loginTitle}</h2>
                             </div>
 
-                            <form id="Form_User_SignIn" action="{$bburl}/misc.php?action=welcome" method="post">
+                            <form aria-labelledby="welcome_login_title" id="Form_User_SignIn" action="{$bburl}/member.php?action=do_login" method="post">
                                 <input type="hidden" name="wel_do" value="login">
                                 <input type="hidden" name="url" value="{$redirectEsc}">
                                 <input type="hidden" name="my_post_key" value="{$postCodeEsc}">
                                 <input type="hidden" name="remember" value="yes">
 
                                 <div class="modal-body">
-                                    <div class="wel-login-error">
+                                    <div class="wel-login-error" id="welcome_login_errors" role="alert" tabindex="-1">
                                         {$loginErrorHtml}
                                     </div>
                                     <div class="row">
                                         <div class="col-md-12">
                                             <p>
-                                                <input id="txtUserName" name="username" value="{$prefillUsernameEsc}" placeholder="{$usernamePlaceholder}"
+                                                <label class="visually-hidden" for="txtUserName">{$usernameLabel}</label><input name="username" id="txtUserName" value="{$prefillUsernameEsc}" placeholder="{$usernamePlaceholder}"
                                                        class="form-control" type="text" autocomplete="username">
                                             </p>
                                             <p>
-                                                <input id="txtPassword" name="password" placeholder="{$passwordPlaceholder}"
+                                                <label class="visually-hidden" for="txtPassword">{$passwordLabel}</label><input name="password" id="txtPassword" placeholder="{$passwordPlaceholder}"
                                                        class="form-control" type="password" autocomplete="current-password">
                                             </p>
+                                            {$loginCaptchaHtml}
                                             {$loginForgotLinkHtml}
                                         </div>
                                     </div>
                                 </div>
 
                                 <div class="modal-footer">
-                                    <button class="btn btn-default" type="button" data-dismiss="modal">{$closeText}</button>
-                                    <button class="btn btn-primary" type="submit">{$submitText}</button>
+                                    <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">{$closeText}</button>
+                                    <input class="btn btn-primary" type="submit" name="submit" value="{$submitText}">
                                 </div>
                             </form>
 
@@ -398,12 +406,12 @@ HTML
         'about_modal' => <<<'HTML'
         <div class="container">
             <div class="row">
-                <div id="welcome_about" tabindex="-1" class="modal fade">
+                <div id="welcome_about" tabindex="-1" class="modal fade" aria-labelledby="welcome_about_title">
                     <div class="modal-dialog">
                         <div class="modal-content">
                             <div class="modal-header">
-                                <button class="close" aria-hidden="true" type="button" data-dismiss="modal">x</button>
-                                <h4 class="modal-title">{$aboutTitle}</h4>
+                                <button class="close" aria-label="{$dismissText}" type="button" data-bs-dismiss="modal"><span aria-hidden="true">x</span></button>
+                                <h2 class="modal-title" id="welcome_about_title" tabindex="-1">{$aboutTitle}</h2>
                             </div>
                             <div class="modal-body">
                                 <div class="row">
@@ -413,7 +421,7 @@ HTML
                                 </div>
                             </div>
                             <div class="modal-footer">
-                                <button class="btn btn-default" type="button" data-dismiss="modal">{$aboutCloseText}</button>
+                                <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">{$aboutCloseText}</button>
                             </div>
                         </div>
                     </div>
@@ -424,34 +432,45 @@ HTML
         ,
         'page_shell' => <<<'HTML'
 <!DOCTYPE html>
-<html id="universe" class="full InitialHide" lang="en">
+<html id="universe" class="full" lang="{$htmlLanguage}" dir="{$htmlDirection}">
 <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1">
     <title>{$pageTitle}</title>
 
-    <link href="{$assetBase}/css/bootstrap.min.css" rel="stylesheet">
+    <link href="{$assetBase}/css/{$bootstrapCssFile}" rel="stylesheet">
     <link href="{$assetBase}/css/the-big-picture.css" rel="stylesheet">
     <link href="{$assetBase}/css/imgLoader.css" rel="stylesheet">
+    <script src="{$assetBase}/js/jquery.js"></script>
+    {$loginHeadHtml}
+    <script src="{$assetBase}/js/bootstrap.min.js"></script>
+    <script id="wel-modal-startup">
+      document.documentElement.classList.add('wel-modals-pending');
+      window.welcomeLandingStartupTimer = setTimeout(function () {
+        window.welcomeLandingInline = true;
+        document.documentElement.classList.remove('wel-modals-pending');
+      }, 1500);
+    </script>
 </head>
 
-<body>
+<body data-bs-no-jquery>
+    <h1 class="visually-hidden">{$pageTitle}</h1>
     <div class="page-container">
-        <nav class="navbar navbar-inverse navbar-fixed-bottom" role="navigation">
+        <nav class="navbar navbar-expand-sm navbar-dark bg-dark fixed-bottom wel-navbar" role="navigation">
             <div class="container">
                 <div class="navbar-header">
-                    <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#bs-example-navbar-collapse-1">
-                        <span class="sr-only">{$navToggleLabel}</span>
+                    <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#bs-example-navbar-collapse-1" aria-controls="bs-example-navbar-collapse-1" aria-expanded="false">
+                        <span class="visually-hidden">{$navToggleLabel}</span>
                         <span class="icon-bar"></span>
                         <span class="icon-bar"></span>
                         <span class="icon-bar"></span>
                     </button>
-                    <a class="navbar-brand" data-toggle="modal" href="#welcome_login">{$navBrand}</a>
+                    <a class="navbar-brand" data-bs-toggle="modal" href="#welcome_login">{$navBrand}</a>
                 </div>
 
                 <div class="collapse navbar-collapse" id="bs-example-navbar-collapse-1">
-                    <ul class="nav navbar-nav">
+                    <ul class="navbar-nav">
 {$navForgotItemHtml}
 {$navAboutItemHtml}
                     </ul>
@@ -461,10 +480,10 @@ HTML
 
         <div class="container-fluid">
             <div class="row">
-                <div class="col-md-offset-6 col-md-5 col-sm-12 col-xs-12 input-group input-group-lg btn-row">
-                    <button id="btnLogin" class="btn btn-primary btn-custom btn-success" data-toggle="modal" href="#welcome_login" type="button">
+                <div class="offset-md-6 col-md-5 col-12 btn-row">
+                    <a id="btnLogin" class="btn btn-primary btn-custom btn-success" data-bs-toggle="modal" href="#welcome_login">
                         {$primaryBtn}
-                    </button>
+                    </a>
                 </div>
             </div>
         </div>
@@ -473,14 +492,11 @@ HTML
 {$aboutModalHtml}
     </div>
 
-    <script src="{$assetBase}/js/jquery.js"></script>
-    <script src="{$assetBase}/js/bootstrap.min.js"></script>
-    <script src="{$assetBase}/js/jquery.waitforimages.min.js"></script>
-
     <script>
+      if (window.jQuery && window.bootstrap && window.bootstrap.Modal) {
       function openLoginModal() {
 	      if (window.jQuery && $('#welcome_login').length) {
-	          $('#welcome_login').modal('show');
+	          window.bootstrap.Modal.getOrCreateInstance(document.getElementById('welcome_login')).show();
 	      }
       }
 
@@ -495,24 +511,21 @@ HTML
         var idx = Math.floor(Math.random() * images.length);
         var url = "url(" + images[idx] + ")";
 
-        $(".full").css("background-image", url).waitForImages({
-          waitForAll: true,
-          finished: function () {
-            $(".InitialHide").fadeIn(2000);
-          }
-        });
+        if (typeof window.welcomeLandingSetBackground === 'function') {
+          window.welcomeLandingSetBackground(images[idx]);
+        } else {
+          $(".full").css("background-image", url);
+        }
       });
 
       document.addEventListener('DOMContentLoaded', function () {
 	      if ({$openLoginModalJs}) {
 	          if (typeof openLoginModal === 'function') openLoginModal();
-	          var u = document.querySelector('#Form_User_SignIn input[name="username"]');
-	          if (u) u.focus();
 	      }
 	  });
 
 	  $(function () {
-	      $('#welcome_login').on('hidden.bs.modal', function () {
+	      document.getElementById('welcome_login').addEventListener('hidden.bs.modal', function () {
             if (window.history && history.replaceState) {
                 history.replaceState(null, document.title, window.location.pathname + window.location.search);
             }
@@ -532,7 +545,9 @@ HTML
             }
          });
 	  });
+      }
     </script>
+    <script src="{$assetBase}/js/welcome-landing.js"></script>
 
 </body>
 </html>
@@ -552,15 +567,31 @@ function welcome_landing_ensure_templates()
         $title = WEL_TEMPLATE_PREFIX . $key;
         $query = $db->simple_select(
             'templates',
-            'tid, template',
-            "title='" . $db->escape_string($title) . "'"
+            'tid, sid, template',
+            "title='" . $db->escape_string($title) . "' AND sid IN (-2,-1)"
         );
 
-        if ($db->num_rows($query)) {
-            while ($row = $db->fetch_array($query)) {
+        $globalRows = array();
+        $legacyRows = array();
+        while ($row = $db->fetch_array($query)) {
+            if ((int)$row['sid'] === -1) {
+                $globalRows[] = $row;
+            } else {
+                $legacyRows[] = $row;
+            }
+        }
+
+        // Existing globals win. Ambiguous duplicates need manual review, not merging.
+        $rows = $globalRows ? $globalRows : $legacyRows;
+        if ($rows) {
+            if (count($rows) === 1) {
+                $row = $rows[0];
                 $tid = (int)$row['tid'];
                 $storedTemplate = (string)$row['template'];
-                $updates = array('sid' => -1);
+                $updates = array();
+                if ((int)$row['sid'] === -2) {
+                    $updates['sid'] = -1;
+                }
                 $migratedTemplate = welcome_landing_migrate_template($key, $storedTemplate);
 
                 if ($migratedTemplate !== $storedTemplate) {
@@ -568,7 +599,9 @@ function welcome_landing_ensure_templates()
                     $updates['dateline'] = $dateline;
                 }
 
-                $db->update_query('templates', $updates, "tid='{$tid}'");
+                if ($updates) {
+                    $db->update_query('templates', $updates, "tid='{$tid}'");
+                }
             }
 
             continue;
@@ -586,11 +619,23 @@ function welcome_landing_ensure_templates()
 
 function welcome_landing_template_migrations()
 {
+    // Ordered, repeatable transforms; no persisted migration version is tracked.
     return array(
         array(
-            'version' => 1,
             'key' => 'page_shell',
             'callback' => 'welcome_landing_migrate_page_shell_nav_toggle_label',
+        ),
+        array(
+            'key' => 'login_modal',
+            'callback' => 'welcome_landing_migrate_login_modal_native_login',
+        ),
+        array(
+            'key' => 'page_shell',
+            'callback' => 'welcome_landing_migrate_page_shell_login_scripts',
+        ),
+        array(
+            'key' => 'page_shell',
+            'callback' => 'welcome_landing_migrate_page_shell_availability',
         ),
     );
 }
@@ -605,7 +650,71 @@ function welcome_landing_migrate_template($key, $template)
         $template = call_user_func($migration['callback'], $template);
     }
 
-    return $template;
+    return welcome_landing_migrate_startup(welcome_landing_migrate_accessibility(welcome_landing_migrate_bootstrap5($template)));
+}
+
+function welcome_landing_migrate_startup($template)
+{
+    if (strpos($template, 'id="wel-modal-startup"') !== false) {
+        return $template;
+    }
+    $anchor = '<script src="{$assetBase}/js/bootstrap.min.js"></script>';
+    $startup = <<<'HTML'
+    <script id="wel-modal-startup">
+      document.documentElement.classList.add('wel-modals-pending');
+      window.welcomeLandingStartupTimer = setTimeout(function () {
+        window.welcomeLandingInline = true;
+        document.documentElement.classList.remove('wel-modals-pending');
+      }, 1500);
+    </script>
+HTML;
+    return str_replace($anchor, $anchor . "\n" . $startup, $template);
+}
+
+function welcome_landing_migrate_accessibility($template)
+{
+    if (strpos($template, '<h1') === false) {
+        $template = str_replace('<body data-bs-no-jquery>', '<body data-bs-no-jquery>' . "\n" . '    <h1 class="visually-hidden">{$pageTitle}</h1>', $template);
+    }
+    return strtr($template, array(
+        'var u = document.querySelector(\'#Form_User_SignIn input[name="username"]\');' => '',
+        'if (u) u.focus();' => '',
+        '<html id="universe" class="full" lang="en">' => '<html id="universe" class="full" lang="{$htmlLanguage}" dir="{$htmlDirection}">',
+        'href="{$assetBase}/css/bootstrap.min.css"' => 'href="{$assetBase}/css/{$bootstrapCssFile}"',
+        'id="welcome_login" tabindex="-1" class="modal fade">' => 'id="welcome_login" tabindex="-1" class="modal fade" aria-labelledby="welcome_login_title">',
+        'id="welcome_about" tabindex="-1" class="modal fade">' => 'id="welcome_about" tabindex="-1" class="modal fade" aria-labelledby="welcome_about_title">',
+        '<h4 class="modal-title">{$loginTitle}</h4>' => '<h2 class="modal-title" id="welcome_login_title">{$loginTitle}</h2>',
+        '<h4 class="modal-title">{$aboutTitle}</h4>' => '<h2 class="modal-title" id="welcome_about_title" tabindex="-1">{$aboutTitle}</h2>',
+        '<button class="close" aria-hidden="true" type="button" data-bs-dismiss="modal">x</button>' => '<button class="close" aria-label="{$dismissText}" type="button" data-bs-dismiss="modal"><span aria-hidden="true">x</span></button>',
+        '<input id="txtUserName" name="username"' => '<label class="visually-hidden" for="txtUserName">{$usernameLabel}</label><input name="username" id="txtUserName"',
+        '<input id="txtPassword" name="password"' => '<label class="visually-hidden" for="txtPassword">{$passwordLabel}</label><input name="password" id="txtPassword"',
+        '<div class="wel-login-error">' => '<div class="wel-login-error" id="welcome_login_errors" role="alert" tabindex="-1">',
+        '<form id="Form_User_SignIn"' => '<form aria-labelledby="welcome_login_title" id="Form_User_SignIn"',
+        'data-bs-target="#bs-example-navbar-collapse-1">' => 'data-bs-target="#bs-example-navbar-collapse-1" aria-controls="bs-example-navbar-collapse-1" aria-expanded="false">',
+    ));
+}
+
+function welcome_landing_migrate_bootstrap5($template)
+{
+    // Exact legacy tokens only; custom Bootstrap markup still requires admin review.
+    return strtr($template, array(
+        'data-toggle=' => 'data-bs-toggle=',
+        'data-target=' => 'data-bs-target=',
+        'data-dismiss=' => 'data-bs-dismiss=',
+        '<body>' => '<body data-bs-no-jquery>',
+        'class="navbar navbar-inverse navbar-fixed-bottom"' => 'class="navbar navbar-expand-sm navbar-dark bg-dark fixed-bottom wel-navbar"',
+        'class="navbar-toggle"' => 'class="navbar-toggler"',
+        'class="sr-only"' => 'class="visually-hidden"',
+        'class="nav navbar-nav"' => 'class="navbar-nav"',
+        '<li><a ' => '<li class="nav-item"><a class="nav-link" ',
+        'class="col-md-12 text-right"' => 'class="col-md-12 text-end"',
+        'class="btn btn-default"' => 'class="btn btn-outline-secondary"',
+        'class="col-md-offset-6 col-md-5 col-sm-12 col-xs-12 input-group input-group-lg btn-row"' => 'class="offset-md-6 col-md-5 col-12 btn-row"',
+        'if (window.jQuery && window.jQuery.fn.modal && window.jQuery.fn.modal.Constructor) {' => 'if (window.jQuery && window.bootstrap && window.bootstrap.Modal) {',
+        '$(\'#welcome_login\').modal(\'show\');' => 'window.bootstrap.Modal.getOrCreateInstance(document.getElementById(\'welcome_login\')).show();',
+        '$(\'#welcome_login\').on(\'hidden.bs.modal\', function () {' => 'document.getElementById(\'welcome_login\').addEventListener(\'hidden.bs.modal\', function () {',
+        '    <script src="{$assetBase}/js/jquery.waitforimages.min.js"></script>' => '',
+    ));
 }
 
 function welcome_landing_migrate_page_shell_nav_toggle_label($template)
@@ -617,13 +726,118 @@ function welcome_landing_migrate_page_shell_nav_toggle_label($template)
     return str_replace('Toggle navigation', '{$navToggleLabel}', $template);
 }
 
+function welcome_landing_migrate_login_modal_native_login($template)
+{
+    $template = str_replace(
+        'action="{$bburl}/misc.php?action=welcome"',
+        'action="{$bburl}/member.php?action=do_login"',
+        $template
+    );
+
+    if (strpos($template, '{$loginCaptchaHtml}') === false) {
+        $template = str_replace('{$loginForgotLinkHtml}', '{$loginCaptchaHtml}{$loginForgotLinkHtml}', $template);
+    }
+
+    return str_replace(
+        '<button class="btn btn-primary" type="submit">{$submitText}</button>',
+        '<input class="btn btn-primary" type="submit" name="submit" value="{$submitText}">',
+        $template
+    );
+}
+
+function welcome_landing_migrate_page_shell_login_scripts($template)
+{
+    if (strpos($template, '{$loginHeadHtml}') !== false || substr_count($template, '</head>') !== 1) {
+        return $template;
+    }
+
+    $scripts = array(
+        '<script src="{$assetBase}/js/jquery.js"></script>',
+        '<script src="{$assetBase}/js/bootstrap.min.js"></script>',
+        '<script src="{$assetBase}/js/jquery.waitforimages.min.js"></script>',
+    );
+
+    foreach ($scripts as $script) {
+        if (substr_count($template, $script) !== 1) {
+            return $template;
+        }
+    }
+
+    // Native CAPTCHA templates execute scripts as the form is parsed.
+    $template = str_replace($scripts, '', $template);
+    $headScripts = $scripts[0] . "\n    " . '{$loginHeadHtml}' . "\n    "
+        . $scripts[1] . "\n    " . $scripts[2];
+    return str_replace('</head>', $headScripts . "\n</head>", $template);
+}
+
+function welcome_landing_migrate_page_shell_availability($template)
+{
+    $template = str_replace('class="full InitialHide"', 'class="full"', $template);
+    $oldImageLoad = <<<'HTML'
+        $(".full").css("background-image", url).waitForImages({
+          waitForAll: true,
+          finished: function () {
+            $(".InitialHide").fadeIn(2000);
+          }
+        });
+HTML;
+    // Compare with normalized newlines so CRLF-stored templates also match.
+    $oldImageLoad = str_replace("\r\n", "\n", $oldImageLoad);
+    $newImageLoad = '        $(".full").css("background-image", url);';
+    $template = str_replace(array($oldImageLoad, str_replace("\n", "\r\n", $oldImageLoad)), $newImageLoad, $template);
+
+    $backgroundFade = <<<'HTML'
+        if (typeof window.welcomeLandingSetBackground === 'function') {
+          window.welcomeLandingSetBackground(images[idx]);
+        } else {
+          $(".full").css("background-image", url);
+        }
+HTML;
+    if (strpos($template, 'window.welcomeLandingSetBackground') === false) {
+        $template = str_replace($newImageLoad, $backgroundFade, $template);
+    }
+
+    $oldButton = <<<'HTML'
+                    <button id="btnLogin" class="btn btn-primary btn-custom btn-success" data-toggle="modal" href="#welcome_login" type="button">
+                        {$primaryBtn}
+                    </button>
+HTML;
+    $newButton = <<<'HTML'
+                    <a id="btnLogin" class="btn btn-primary btn-custom btn-success" data-toggle="modal" href="#welcome_login">
+                        {$primaryBtn}
+                    </a>
+HTML;
+    $oldButton = str_replace("\r\n", "\n", $oldButton);
+    $template = str_replace(array($oldButton, str_replace("\n", "\r\n", $oldButton)), $newButton, $template);
+
+    // Only guard the recognized legacy inline script; leave custom scripts intact.
+    $start = '    <script>' . "\n" . '      function openLoginModal() {';
+    $normalized = str_replace("\r\n", "\n", $template);
+    $offset = strpos($normalized, $start);
+    if ($offset !== false && strpos($normalized, $start, $offset + 1) === false) {
+        $end = strpos($normalized, '    </script>', $offset);
+        if ($end !== false) {
+            $script = substr($normalized, $offset, $end - $offset + strlen('    </script>'));
+            $guarded = str_replace('    <script>', '    <script>' . "\n" . '      if (window.jQuery && window.jQuery.fn.modal && window.jQuery.fn.modal.Constructor) {', $script);
+            $guarded = str_replace('    </script>', '      }' . "\n" . '    </script>', $guarded);
+            $template = str_replace(array($script, str_replace("\n", "\r\n", $script)), $guarded, $template);
+        }
+    }
+
+    $asset = '<script src="{$assetBase}/js/welcome-landing.js"></script>';
+    if (strpos($template, $asset) === false && substr_count($template, '</body>') === 1) {
+        $template = str_replace('</body>', '    ' . $asset . "\n</body>", $template);
+    }
+    return $template;
+}
+
 function welcome_landing_delete_templates()
 {
     global $db;
 
     foreach (array_keys(welcome_landing_default_templates()) as $key) {
         $title = WEL_TEMPLATE_PREFIX . $key;
-        $db->delete_query('templates', "title='" . $db->escape_string($title) . "'");
+        $db->delete_query('templates', "title='" . $db->escape_string($title) . "' AND sid IN (-2,-1)");
     }
 }
 
@@ -675,98 +889,86 @@ function welcome_landing_default_redirect_path()
 
 function welcome_landing_safe_redirect_path($redirect, $default = WEL_LOGGED_IN_REDIRECT_NORM)
 {
-    $default = preg_replace('/[\x00-\x1F\x7F]+/', '', str_replace("\\", '', (string)$default));
-    $default = '/' . ltrim($default, '/');
-    $redirect = rawurldecode((string)$redirect);
-    $redirect = trim(preg_replace('/[\x00-\x1F\x7F]+/', '', $redirect));
-
-    if ($redirect === '') {
-        return $default;
+    $default = (string)$default;
+    if (!welcome_landing_is_safe_redirect_path($default)) {
+        $default = WEL_LOGGED_IN_REDIRECT_NORM;
     }
+    $redirect = (string)$redirect;
 
-    if (strpos($redirect, '://') !== false || strpos($redirect, '\\') !== false) {
-        return $default;
-    }
-
-    if (substr($redirect, 0, 1) !== '/' || strpos($redirect, '//') === 0) {
-        return $default;
-    }
-
-    return $redirect;
+    return welcome_landing_is_safe_redirect_path($redirect) ? $redirect : $default;
 }
 
-function welcome_landing_login_attempt_user($username)
+function welcome_landing_is_safe_redirect_path($path)
 {
-    if ($username === '' || !function_exists('get_user_by_username')) {
-        return array();
+    if ($path === '' || substr($path, 0, 1) !== '/' || strpos($path, '//') === 0
+        || strpos($path, '\\') !== false || preg_match('/[\x00-\x20\x7F]/', $path)
+        || preg_match('/%(?:0[0-9a-f]|1[0-9a-f]|7f)/i', $path)) {
+        return false;
     }
 
-    $options = array(
-        'fields' => array('loginattempts'),
-        'username_method' => isset($GLOBALS['mybb']->settings['username_method']) ? (int)$GLOBALS['mybb']->settings['username_method'] : 0,
-    );
-
-    $user = get_user_by_username($username, $options);
-
-    return is_array($user) ? $user : array();
+    // Inspect only the path for traversal/ambiguous separators. Query and
+    // fragment escapes are data and must survive the login round trip unchanged.
+    $pathname = substr($path, 0, strcspn($path, '?#'));
+    if (strpos($pathname, ':') !== false
+        || preg_match('/%(?![0-9a-f]{2})|%(?:2f|5c|25)/i', $pathname)) {
+        return false;
+    }
+    $decodedPath = rawurldecode($pathname);
+    return !preg_match('#(?:^|/)\.{1,2}(?:/|$)#', $decodedPath);
 }
 
-function welcome_landing_check_login_attempts($uid = 0)
+function welcome_landing_welcome_url()
 {
     global $mybb;
 
-    if (function_exists('login_attempt_check')) {
-        return (int)login_attempt_check((int)$uid);
-    }
-
-    return isset($mybb->cookies['loginattempts']) ? (int)$mybb->cookies['loginattempts'] : 0;
+    return rtrim($mybb->settings['bburl'], '/') . WEL_WELCOME_ENDPOINT_NORM;
 }
 
-function welcome_landing_record_failed_login_attempt($uid, $loginAttempts)
+function welcome_landing_request_to_forum_path($uri)
 {
-    global $db;
+    global $mybb;
 
-    my_setcookie('loginattempts', (int)$loginAttempts + 1);
-
-    if ((int)$uid > 0) {
-        $db->update_query('users', array('loginattempts' => 'loginattempts+1'), "uid='" . (int)$uid . "'", 1, true);
-    }
-}
-
-function welcome_landing_clear_login_attempts($uid)
-{
-    global $db, $session;
-
-    $uid = (int)$uid;
-
-    my_setcookie('loginattempts', 1);
-
-    if (isset($session) && is_object($session) && !empty($session->sid)) {
-        $sid = $db->escape_string($session->sid);
-        $db->update_query('sessions', array('uid' => $uid), "sid='{$sid}'");
+    $uri = (string)$uri;
+    if (!welcome_landing_is_safe_redirect_path($uri)) {
+        return '';
     }
 
-    if ($uid > 0) {
-        $db->update_query('users', array('loginattempts' => 1), "uid='{$uid}'");
+    // REQUEST_URI starts at the website root; settings and form destinations
+    // start at the forum root. Strip the configured board prefix exactly once.
+    $boardPath = rtrim((string)parse_url($mybb->settings['bburl'], PHP_URL_PATH), '/');
+    $pathname = substr($uri, 0, strcspn($uri, '?#'));
+    if ($boardPath !== '') {
+        if ($pathname === $boardPath) {
+            $uri = '/' . substr($uri, strlen($boardPath));
+        } elseif (strpos($pathname, $boardPath . '/') === 0) {
+            $uri = substr($uri, strlen($boardPath));
+        } else {
+            return '';
+        }
     }
+
+    return welcome_landing_is_safe_redirect_path($uri) ? $uri : '';
 }
 
 function welcome_landing_load_language()
 {
     global $lang;
+    static $loadedContext = null;
 
     if (isset($lang) && is_object($lang) && method_exists($lang, 'load')) {
-        $lang->load('welcome_landing', false, true);
+        // MyBB includes the public/admin area in language and fallback paths.
+        // Keep only the last context so switching away and back reloads it.
+        $context = array($lang, $lang->path, $lang->language, $lang->fallback);
+        if ($loadedContext !== $context) {
+            $lang->load('welcome_landing', false, true);
+            $loadedContext = $context;
+        }
     }
 }
 
 function welcome_landing_load_admin_language()
 {
-    global $lang;
-
-    if (isset($lang) && is_object($lang) && method_exists($lang, 'load')) {
-        $lang->load('welcome_landing', false, true);
-    }
+    welcome_landing_load_language();
 }
 
 function welcome_landing_lang($key, $default)
@@ -795,25 +997,78 @@ function welcome_landing_admin_lang($key, $default)
     return $default;
 }
 
+function welcome_landing_has_stored_template($title)
+{
+    global $db, $theme;
+    static $exists = array();
+
+    $templateSet = isset($theme['templateset']) ? (int)$theme['templateset'] : 0;
+    $cacheKey = $templateSet . ':' . $title;
+    if (!array_key_exists($cacheKey, $exists)) {
+        // MyBB caches both a missing row and an intentional blank as ''.
+        // Match its eligible template sets, without changing lookup precedence.
+        $sets = $templateSet ? "'-2','-1','{$templateSet}'" : "'-2','-1'";
+        $query = $db->simple_select(
+            'templates',
+            'tid',
+            "title='" . $db->escape_string($title) . "' AND sid IN ({$sets})",
+            array('limit' => 1)
+        );
+        $exists[$cacheKey] = $db->num_rows($query) > 0;
+    }
+
+    return $exists[$cacheKey];
+}
+
+function welcome_landing_cache_templates($keys)
+{
+    global $templates, $theme;
+
+    // MyBB's batch API includes sid 0 without a theme, unlike get() in ACP.
+    // Leave that context and nonstandard template engines on the get() path.
+    if (empty($theme['templateset']) || !isset($templates) || !is_object($templates)
+        || !method_exists($templates, 'cache') || !isset($templates->cache) || !is_array($templates->cache)) {
+        return;
+    }
+
+    $pending = array();
+    // Keys are internal literals only; never pass request values to cache().
+    foreach ($keys as $key) {
+        $title = WEL_TEMPLATE_PREFIX . $key;
+        if (!isset($templates->cache[$title])) {
+            $pending[] = $title;
+        }
+    }
+    if ($pending) {
+        $templates->cache(implode(',', array_unique($pending)));
+    }
+}
+
 function welcome_landing_render_template($key, $vars = array())
 {
     global $templates;
+    static $defaults = null;
 
-    $defaults = welcome_landing_default_templates();
-    $template = isset($defaults[$key]) ? $defaults[$key] : '';
+    $template = '';
     $usingStoredTemplate = false;
     $title = WEL_TEMPLATE_PREFIX . $key;
 
     if (isset($templates) && is_object($templates) && method_exists($templates, 'get')) {
-        $storedTemplate = $templates->get($title);
+        $storedTemplate = $templates->get($title, 1, 0);
 
-        if ($storedTemplate !== false && $storedTemplate !== '') {
-            $template = $storedTemplate;
+        if ($storedTemplate !== false
+            && ($storedTemplate !== '' || welcome_landing_has_stored_template($title))) {
+            // Preserve MyBB's normal escaping, comments and theme selection.
+            $template = $templates->get($title);
             $usingStoredTemplate = true;
         }
     }
 
     if (!$usingStoredTemplate) {
+        if ($defaults === null) {
+            $defaults = welcome_landing_default_templates();
+        }
+        $template = isset($defaults[$key]) ? $defaults[$key] : '';
         $template = str_replace("\\'", "'", addslashes($template));
     }
 
@@ -830,7 +1085,10 @@ function welcome_landing_render_template($key, $vars = array())
 
 $plugins->add_hook('global_start', 'welcome_landing_intercept_welcome');
 $plugins->add_hook('global_start', 'welcome_landing_redirect_index_guests');
+$plugins->add_hook('global_start', 'welcome_landing_redirect_generic_login');
 $plugins->add_hook('global_start', 'welcome_landing_guest_gatekeeper');
+$plugins->add_hook('member_do_login_start', 'welcome_landing_prepare_native_login');
+$plugins->add_hook('member_login_end', 'welcome_landing_present_native_login', 100);
 
 /* ============================================================
  * IMPLEMENTATION
@@ -855,74 +1113,105 @@ function welcome_landing_intercept_welcome()
         exit;
     }
 
-    $redirect = welcome_landing_safe_redirect_path($mybb->get_input('url'), welcome_landing_default_redirect_path());
     $bburl = rtrim($mybb->settings['bburl'], '/');
+
+    // Preserve POST bodies from already-open forms and unmigrated templates.
+    // MyBB's member controller performs the post-key and login checks.
+    if ($mybb->request_method === 'post' && $mybb->get_input('wel_do') === 'login') {
+        header('Location: ' . $bburl . '/member.php?action=do_login', true, 307);
+        exit;
+    }
+
+    $redirect = welcome_landing_safe_redirect_path($mybb->get_input('url'), welcome_landing_default_redirect_path());
     $assetBase = $bburl . welcome_landing_setting_path('asset_path', WEL_ASSET_PATH_NORM);
-
-	$openLoginModal = false;
-	$prefillUsername = '';
-	$loginError = '';
-
-	// Handle login POST from our modal
-	if ($_SERVER['REQUEST_METHOD'] === 'POST' && $mybb->get_input('wel_do') === 'login') {
-
-		// CSRF check (uses MyBB's post key)
-		require_once MYBB_ROOT . 'inc/functions.php';
-		verify_post_check($mybb->get_input('my_post_key'));
-
-		require_once MYBB_ROOT . 'inc/functions_user.php';
-		$prefillUsername = $mybb->get_input('username');
-		$password = $mybb->get_input('password');
-		$loginAttemptUser = welcome_landing_login_attempt_user($prefillUsername);
-		$loginAttemptUid = !empty($loginAttemptUser['uid']) ? (int)$loginAttemptUser['uid'] : 0;
-		$loginAttempts = welcome_landing_check_login_attempts($loginAttemptUid);
-
-		$openLoginModal = true;
-
-		if (trim($prefillUsername) === '' || trim($password) === '') {
-			$loginError = welcome_landing_lang('welcome_landing_error_missing_credentials', 'Please enter both username and password.');
-		} else {
-			// IMPORTANT:
-			// MyBB’s exact login code lives in member.php (action=do_login).
-			// We are calling the same underlying validation function here.
-			$user = validate_password_from_username($prefillUsername, $password);
-
-			if (!is_array($user) || empty($user['uid'])) {
-				welcome_landing_record_failed_login_attempt($loginAttemptUid, $loginAttempts);
-				$loginError = welcome_landing_lang('welcome_landing_error_invalid_credentials', 'Invalid username or password.');
-			} else {
-				// Successful auth. Use MyBB’s normal login helper if available.
-				// Different MyBB installs expose different helpers, so we try the canonical path.
-
-				// Ensure loginkey exists (MyBB usually sets/rotates this on login)
-				if (empty($user['loginkey'])) {
-					$user['loginkey'] = generate_loginkey();
-					// Persist the loginkey
-					$db = $GLOBALS['db'];
-					$db->update_query('users', array('loginkey' => $db->escape_string($user['loginkey'])), "uid='" . (int)$user['uid'] . "'");
-				}
-
-				welcome_landing_clear_login_attempts((int)$user['uid']);
-
-				// Set login cookie (standard MyBB cookie format). The null expiry matches MyBB's normal persistent login cookie.
-				my_setcookie('mybbuser', (int)$user['uid'] . '_' . $user['loginkey'], null, true);
-				my_setcookie('sid', '', -1, true);
-
-				$target = welcome_landing_safe_redirect_path($redirect, welcome_landing_default_redirect_path());
-				header("Location: {$bburl}{$target}");
-				exit;
-			}
-		}
-	}
 
 
     header("Content-Type: text/html; charset=UTF-8");
     header("X-Frame-Options: SAMEORIGIN");
     header("X-Content-Type-Options: nosniff");
 
-    echo welcome_landing_render($bburl, $assetBase, $redirect, $mybb->post_code, $openLoginModal, $prefillUsername, $loginError);
+    echo welcome_landing_render($bburl, $assetBase, $redirect, $mybb->post_code);
 
     exit;
+}
+
+function welcome_landing_prepare_native_login()
+{
+    global $mybb, $welcome_landing_login_request;
+
+    if ($mybb->get_input('wel_do') !== 'login') {
+        return;
+    }
+
+    $redirect = welcome_landing_safe_redirect_path($mybb->get_input('url'), welcome_landing_default_redirect_path());
+    $welcome_landing_login_request = array('redirect' => $redirect);
+
+    // Core preserves full board URLs; a bare path can lose nested segments.
+    $mybb->input['url'] = rtrim($mybb->settings['bburl'], '/') . $redirect;
+}
+
+function welcome_landing_present_native_login()
+{
+    global $mybb, $templates, $inline_errors, $captcha;
+    global $welcome_landing_login_request, $welcome_landing_login_page;
+
+    if (empty($welcome_landing_login_request) || !empty($mybb->user['uid'])) {
+        return;
+    }
+
+    $loginCaptchaHtml = (string)$captcha;
+    $loginHeadHtml = '';
+
+    if ($loginCaptchaHtml !== '') {
+        welcome_landing_cache_templates(array('login_modal', 'page_shell'));
+        $modal = $templates->get(WEL_TEMPLATE_PREFIX . 'login_modal', 0, 0);
+        $shell = $templates->get(WEL_TEMPLATE_PREFIX . 'page_shell', 0, 0);
+
+        // Keep MyBB's complete login form if a custom/old template cannot host
+        // the native challenge. Never hide a required CAPTCHA to retain styling.
+        if (strpos($modal, '{$loginCaptchaHtml}') === false
+            || strpos($modal, 'name="submit"') === false
+            || strpos($shell, '{$loginHeadHtml}') === false) {
+            return;
+        }
+
+        if (stripos($loginCaptchaHtml, '<tr') !== false) {
+            $loginCaptchaHtml = '<table class="table"><tbody>' . $loginCaptchaHtml . '</tbody></table>';
+        }
+        $captchaLabelHtml = '';
+        if (strpos($loginCaptchaHtml, 'id="imagestring"') !== false && strpos($loginCaptchaHtml, 'for="imagestring"') === false) {
+            $captchaLabelHtml = '<label class="visually-hidden" for="imagestring">'
+                . htmlspecialchars_uni(welcome_landing_lang('welcome_landing_captcha_label', 'Image verification')) . '</label>';
+        }
+        $loginCaptchaHtml = '<div class="wel-login-captcha">' . $captchaLabelHtml . $loginCaptchaHtml . '</div>';
+
+        $assetUrl = htmlspecialchars_uni(rtrim($mybb->asset_url, '/'));
+        $useAjax = json_encode((string)$mybb->settings['use_xmlhttprequest']);
+        // MyBB owns CAPTCHA helpers; Bootstrap uses its native API with its
+        // jQuery bridge disabled so the two modal implementations stay separate.
+        $loginHeadHtml = '<script src="' . $assetUrl . '/jscripts/jquery.plugins.min.js?ver=1821"></script>'
+            . '<script>var lang = window.lang || {}; var use_xmlhttprequest = ' . $useAjax . ';</script>';
+    }
+
+    $bburl = rtrim($mybb->settings['bburl'], '/');
+    $assetBase = $bburl . welcome_landing_setting_path('asset_path', WEL_ASSET_PATH_NORM);
+    $welcome_landing_login_page = welcome_landing_render(
+        $bburl,
+        $assetBase,
+        $welcome_landing_login_request['redirect'],
+        $mybb->post_code,
+        true,
+        $mybb->get_input('username'),
+        (string)$inline_errors,
+        $loginCaptchaHtml,
+        $loginHeadHtml
+    );
+
+    header('X-Frame-Options: SAMEORIGIN');
+    header('X-Content-Type-Options: nosniff');
+    // Replace only this request's presentation; let the member controller and
+    // remaining hooks finish normally, including MyBB's output pipeline.
+    $templates->cache['member_login'] = '{$welcome_landing_login_page}';
 }
 
 function welcome_landing_redirect_index_guests()
@@ -939,7 +1228,26 @@ function welcome_landing_redirect_index_guests()
         return;
     }
 
-    header("Location: " . WEL_WELCOME_ENDPOINT_NORM);
+    header("Location: " . welcome_landing_welcome_url());
+    exit;
+}
+
+function welcome_landing_redirect_generic_login()
+{
+    global $mybb;
+
+    if (!welcome_landing_setting_bool('redirect_generic_login', true)
+        || !empty($mybb->user['uid']) || $mybb->request_method !== 'get') {
+        return;
+    }
+
+    $request = welcome_landing_current_request();
+    if (!welcome_landing_request_targets_file($request, 'member.php') || $request['action'] !== 'login') {
+        return;
+    }
+
+    $redirect = welcome_landing_safe_redirect_path($mybb->get_input('url'), welcome_landing_default_redirect_path());
+    header('Location: ' . welcome_landing_welcome_url() . '&url=' . rawurlencode($redirect));
     exit;
 }
 
@@ -968,12 +1276,6 @@ function welcome_landing_guest_gatekeeper()
     if (welcome_landing_request_targets_file($request, 'member.php')) {
         $action = $request['action'];
 
-        // Send MyBB's generic login page to the custom welcome/login page.
-        if ($action === 'login' && welcome_landing_setting_bool('redirect_generic_login', true)) {
-            header("Location: " . WEL_WELCOME_ENDPOINT_NORM);
-            exit;
-        }
-
         if ($action === '' || in_array($action, $GLOBALS['WEL_ALLOWED_MEMBER_ACTIONS'], true)) return;
     }
 
@@ -982,8 +1284,12 @@ function welcome_landing_guest_gatekeeper()
     }
 
     // Redirect guests to welcome page, preserving destination
-    $dest = rawurlencode($request['uri']);
-    header("Location: " . WEL_WELCOME_ENDPOINT_NORM . "&url={$dest}");
+    $redirect = welcome_landing_safe_redirect_path(
+        welcome_landing_request_to_forum_path($request['uri']),
+        welcome_landing_default_redirect_path()
+    );
+    $dest = rawurlencode($redirect);
+    header("Location: " . welcome_landing_welcome_url() . "&url={$dest}");
     exit;
 }
 
@@ -1022,6 +1328,11 @@ function welcome_landing_is_welcome_request($request)
 
 function welcome_landing_is_public_guest_path($path)
 {
+    $path = welcome_landing_request_to_forum_path($path);
+    if ($path === '') {
+        return false;
+    }
+
     if (in_array($path, $GLOBALS['WEL_GUEST_PUBLIC_PATHS'], true)) {
         return true;
     }
@@ -1048,27 +1359,21 @@ function welcome_landing_path_matches_public_prefix($path, $prefix)
     return $path === $prefix || strpos($path, $prefix . '/') === 0;
 }
 
-function welcome_landing_render($bburl, $assetBase, $redirect, $postCode, $openLoginModal = false, $prefillUsername = '', $loginError = '')
+function welcome_landing_image_json($bburl)
 {
-    // Build image list dynamically
-    // More reliable: use MYBB_ROOT directly for filesystem
     $imageDirRel = welcome_landing_setting_path('image_dir_path', WEL_IMAGE_DIR_REL_NORM);
     $imageUrlRel = welcome_landing_setting_path('image_url_path', WEL_IMAGE_URL_REL_NORM);
     $imagePrefix = welcome_landing_setting_text('image_prefix', WEL_IMAGE_PREFIX);
     $fallbackImage = welcome_landing_setting_text('fallback_image', WEL_FALLBACK_IMAGE);
 
     $imgDir = rtrim(MYBB_ROOT, '/\\') . $imageDirRel;
-
-
-    // In practice assetBase == bburl + WEL_ASSET_PATH, so we want bburl + WEL_IMAGE_URL_REL_NORM
     $imgUrlBase = $bburl . $imageUrlRel;
-
 
     $images = array();
     $allowedExts = $GLOBALS['WEL_ALLOWED_EXTS'];
 
     if (is_dir($imgDir)) {
-        foreach (glob($imgDir . '/' . $imagePrefix . '*') as $file) {
+        foreach (glob($imgDir . '/' . $imagePrefix . '*') ?: array() as $file) {
             if (!is_file($file)) continue;
 
             $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
@@ -1088,6 +1393,21 @@ function welcome_landing_render($bburl, $assetBase, $redirect, $postCode, $openL
     if ($imagesJson === false) {
         $imagesJson = json_encode(array($imgUrlBase . '/' . $fallbackImage));
     }
+    return $imagesJson;
+}
+
+function welcome_landing_render($bburl, $assetBase, $redirect, $postCode, $openLoginModal = false, $prefillUsername = '', $loginErrorHtml = '', $loginCaptchaHtml = '', $loginHeadHtml = '')
+{
+    global $lang;
+
+    $languageSettings = isset($lang->settings) && is_array($lang->settings) ? $lang->settings : array();
+    $htmlLanguage = isset($languageSettings['htmllang']) ? str_replace('_', '-', trim((string)$languageSettings['htmllang'])) : 'en';
+    if (!preg_match('/\A[a-zA-Z]{1,8}(?:-[a-zA-Z0-9]{1,8})*\z/', $htmlLanguage)) {
+        $htmlLanguage = 'en';
+    }
+    $htmlDirection = !empty($languageSettings['rtl']) ? 'rtl' : 'ltr';
+    $bootstrapCssFile = $htmlDirection === 'rtl' ? 'bootstrap.rtl.min.css' : 'bootstrap.min.css';
+    $imagesJson = welcome_landing_image_json($bburl);
 
     $redirectEsc = htmlspecialchars_uni($redirect);
     $postCodeEsc = htmlspecialchars_uni($postCode);
@@ -1110,17 +1430,25 @@ function welcome_landing_render($bburl, $assetBase, $redirect, $postCode, $openL
     $aboutHtml = welcome_landing_lang('welcome_landing_about_modal_body', '<p>This community is private. Members can sign in from this welcome page to continue to the forum.</p><p>If you already have an account, use the login button to enter your username and password. If you need help accessing your account, use the password recovery link.</p><p>Site administrators can customize this message in the language file or replace the landing page templates and images to match their community.</p>');
     $usernamePlaceholder = htmlspecialchars_uni(welcome_landing_lang('welcome_landing_username_placeholder', 'Username'));
     $passwordPlaceholder = htmlspecialchars_uni(welcome_landing_lang('welcome_landing_password_placeholder', 'Password'));
+    $usernameLabel = htmlspecialchars_uni(welcome_landing_lang('welcome_landing_username_label', 'Username'));
+    $passwordLabel = htmlspecialchars_uni(welcome_landing_lang('welcome_landing_password_label', 'Password'));
+    $dismissText = htmlspecialchars_uni(welcome_landing_lang('welcome_landing_dismiss_modal', 'Close'));
 
     $forgotUrl = $bburl . "/member.php?action=lostpw";
 
     $openLoginModalJs = $openLoginModal ? 'true' : 'false';
     $prefillUsernameEsc = htmlspecialchars_uni($prefillUsername);
-    $loginErrorHtml = '';
 
-    if (!empty($loginError)) {
-        $loginErrorEsc = htmlspecialchars_uni($loginError);
-        $loginErrorHtml = '<div class="wel-login-error" style="margin: 10px 0; padding: 10px; border: 1px solid #c33; border-radius: 6px;">' . $loginErrorEsc . '</div>';
+    $templateKeys = array('login_modal', 'page_shell');
+    if ($showForgot) {
+        $templateKeys[] = 'nav_item_forgot';
+        $templateKeys[] = 'login_forgot_link';
     }
+    if ($showAbout) {
+        $templateKeys[] = 'nav_item_about';
+        $templateKeys[] = 'about_modal';
+    }
+    welcome_landing_cache_templates($templateKeys);
 
     $navForgotItemHtml = $showForgot ? welcome_landing_render_template('nav_item_forgot', array(
         'forgotUrl' => $forgotUrl,
@@ -1138,10 +1466,14 @@ function welcome_landing_render($bburl, $assetBase, $redirect, $postCode, $openL
 
     $loginModalHtml = welcome_landing_render_template('login_modal', array(
         'loginTitle' => $loginTitle,
+        'usernameLabel' => $usernameLabel,
+        'passwordLabel' => $passwordLabel,
+        'dismissText' => $dismissText,
         'bburl' => $bburl,
         'redirectEsc' => $redirectEsc,
         'postCodeEsc' => $postCodeEsc,
         'loginErrorHtml' => $loginErrorHtml,
+        'loginCaptchaHtml' => $loginCaptchaHtml,
         'prefillUsernameEsc' => $prefillUsernameEsc,
         'usernamePlaceholder' => $usernamePlaceholder,
         'passwordPlaceholder' => $passwordPlaceholder,
@@ -1152,12 +1484,16 @@ function welcome_landing_render($bburl, $assetBase, $redirect, $postCode, $openL
 
     $aboutModalHtml = $showAbout ? welcome_landing_render_template('about_modal', array(
         'aboutTitle' => $aboutTitle,
+        'dismissText' => $dismissText,
         'aboutHtml' => $aboutHtml,
         'aboutCloseText' => $aboutCloseText,
     )) : '';
 
     return welcome_landing_render_template('page_shell', array(
         'pageTitle' => $pageTitle,
+        'htmlLanguage' => htmlspecialchars_uni($htmlLanguage),
+        'htmlDirection' => $htmlDirection,
+        'bootstrapCssFile' => $bootstrapCssFile,
         'assetBase' => $assetBase,
         'navBrand' => $navBrand,
         'navToggleLabel' => $navToggleLabel,
@@ -1168,5 +1504,6 @@ function welcome_landing_render($bburl, $assetBase, $redirect, $postCode, $openL
         'aboutModalHtml' => $aboutModalHtml,
         'imagesJson' => $imagesJson,
         'openLoginModalJs' => $openLoginModalJs,
+        'loginHeadHtml' => $loginHeadHtml,
     ));
 }
