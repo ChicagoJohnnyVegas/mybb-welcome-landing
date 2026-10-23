@@ -1,6 +1,21 @@
 # Changelog
 
-This file summarizes the changes from the public v1.21 release to v1.32.
+This file summarizes changes between public releases.
+
+## 1.36 - Background Image Enhancements
+
+This update adds more control over background images and makes their setup easier to check. These are the changes from v1.32.
+
+- **Choose how images appear.** Shuffle shows every image before reshuffling, Random picks independently each time, Sequential follows filename order, and Daily shows everyone the same image for the forum's day. Shuffle is the new default; choose Random to retain the previous behavior.
+- **Replace images without changing their names.** Background-image URLs update when a file's modification time or size changes, helping browsers display the replacement. Replacements preserving both values and caches that ignore URL markers can still require attention.
+- **See what the plugin is finding.** Background Image Status in Admin CP shows the configured paths, matching-image count, fallback availability and selection mode, with clear notices and a link to open a sample image. These are filesystem checks, not automatic checks of browser delivery.
+- **Check changes as you save.** Save and stay returns to refreshed diagnostics; Save and exit returns to the settings list. The image-selection dropdown sits above its guidance bullets.
+
+### Before You Upgrade
+
+From v1.32, replace the plugin PHP, admin language file and `landing/js/welcome-landing.js`, then reactivate to add the setting and update recognized page templates. Back up and prepare customizations first, deactivate before uploading, and hard-refresh the welcome page afterward. No file cleanup is needed from v1.32. Follow [UPGRADE.md](UPGRADE.md) for the complete procedure and the additional requirements for v1.21. **Do not uninstall to upgrade.**
+
+Shuffle and Sequential use browser storage to remember progress. Daily uses the forum timezone and daylight-saving setting. See [README.md](README.md#image-selection-modes) for behavior details and [compatibility notes](README.md#compatibility-notes) for the remaining testing limits.
 
 ## 1.32 - Maintenance Release
 

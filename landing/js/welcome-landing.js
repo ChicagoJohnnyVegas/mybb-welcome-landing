@@ -1,6 +1,54 @@
 (function () {
     'use strict';
 
+    window.welcomeLandingSelectImage = function (images, config) {
+        if (!images.length) return null;
+        config = config || {};
+        // Keep the original stored "random" value for Shuffle and its saved cycles.
+        var mode = ['random', 'independent', 'sequential', 'daily'].includes(config.mode) ? config.mode : 'random';
+        if (mode === 'independent') {
+            return images[Math.floor(Math.random() * images.length)];
+        }
+        if (mode === 'daily') {
+            var day = Number.isInteger(config.day) ? config.day : 0;
+            return images[((day % images.length) + images.length) % images.length];
+        }
+
+        // Cache-version changes replace pixels, not the image's place in a cycle.
+        var ids = images.map(function (url) { return url.replace(/\?v=-?\d+-\d+$/, ''); });
+        var key = 'welcomeLanding.images:' + (config.scope || window.location.pathname);
+        var state;
+        try {
+            state = JSON.parse(window.localStorage.getItem(key));
+        } catch (error) {
+            state = null;
+        }
+        var valid = state && state.mode === mode && JSON.stringify(state.images) === JSON.stringify(ids)
+            && Array.isArray(state.order) && state.order.length === images.length
+            && new Set(state.order).size === images.length
+            && state.order.every(function (index) { return Number.isInteger(index) && index >= 0 && index < images.length; })
+            && Number.isInteger(state.next) && state.next >= 0 && state.next < images.length;
+        if (!valid) {
+            var order = images.map(function (url, index) { return index; });
+            if (mode === 'random') {
+                for (var i = order.length - 1; i > 0; i--) {
+                    var j = Math.floor(Math.random() * (i + 1));
+                    var temp = order[i];
+                    order[i] = order[j];
+                    order[j] = temp;
+                }
+            }
+            state = { mode: mode, images: ids, order: order, next: 0 };
+        }
+        var selected = images[state.order[state.next++]];
+        try {
+            window.localStorage.setItem(key, JSON.stringify(state));
+        } catch (error) {
+            // Storage may be blocked or full. Still show an image on this visit.
+        }
+        return selected;
+    };
+
     var modalTriggers = {};
     function isWelcomeModal(element) {
         return element && (element.id === 'welcome_login' || element.id === 'welcome_about');

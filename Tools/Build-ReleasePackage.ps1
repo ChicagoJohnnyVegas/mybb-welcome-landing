@@ -132,9 +132,11 @@ function Copy-RequiredDirectory {
         throw "Required directory missing: $Source"
     }
 
-    New-Item -ItemType Directory -Force -Path $Destination | Out-Null
-    Get-ChildItem -LiteralPath $Source -Force | ForEach-Object {
-        Copy-Item -LiteralPath $_.FullName -Destination $Destination -Recurse -Force
+    # Create only directories needed by files; omit empty retired asset folders.
+    $sourceRoot = (Resolve-Path -LiteralPath $Source).Path.TrimEnd('\', '/')
+    Get-ChildItem -LiteralPath $Source -Recurse -File -Force | ForEach-Object {
+        $relative = $_.FullName.Substring($sourceRoot.Length).TrimStart('\', '/')
+        Copy-RequiredFile -Source $_.FullName -Destination (Join-Path $Destination $relative)
     }
 }
 

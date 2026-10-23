@@ -144,6 +144,14 @@ $GLOBALS['WEL_SETTINGS'] = array(
         'optionscode' => 'text',
         'value'       => WEL_IMAGE_PREFIX,
     ),
+    'image_selection_mode' => array(
+        'title_key'       => 'welcome_landing_setting_image_selection_mode_title',
+        'description_key' => 'welcome_landing_setting_image_selection_mode_desc',
+        'title'           => 'Image selection mode',
+        'description'     => '<ul><li>Shuffle - Shows every image once before reshuffling. Remembers progress in this browser.</li><li>Random - Picks an image independently each time; repeats are possible.</li><li>Sequential - Shows images in filename order, then repeats. Remembers progress in this browser.</li><li>Daily - Shows everyone the same image for the day, using the forum timezone and daylight-saving setting.</li></ul>',
+        'optionscode' => "select\nrandom=Shuffle\nindependent=Random\nsequential=Sequential\ndaily=Daily",
+        'value'       => 'random',
+    ),
     'fallback_image' => array(
         'title_key'       => 'welcome_landing_setting_fallback_image_title',
         'description_key' => 'welcome_landing_setting_fallback_image_desc',
@@ -188,7 +196,7 @@ function welcome_landing_info()
         "website"       => "https://github.com/ChicagoJohnnyVegas/mybb-welcome-landing",
         "author"        => "\"Chicago\" JohnnyVegas",
         "authorsite"    => "",
-        "version"       => "1.32",
+        "version"       => "1.36",
         "compatibility" => "18*"
     );
 }
@@ -289,12 +297,17 @@ function welcome_landing_ensure_settings()
 
         if ($db->num_rows($query)) {
             $sid = (int)$db->fetch_field($query, 'sid');
-            $db->update_query('settings', array(
+            $updates = array(
                 'title'       => $db->escape_string($title),
                 'description' => $db->escape_string($description),
                 'disporder'   => $disporder,
                 'gid'         => $gid,
-            ), "sid='{$sid}'");
+            );
+            if ($key === 'image_selection_mode') {
+                // Refresh available modes without changing the saved selection.
+                $updates['optionscode'] = $db->escape_string($setting['optionscode']);
+            }
+            $db->update_query('settings', $updates, "sid='{$sid}'");
             ++$disporder;
             continue;
         }
@@ -336,6 +349,193 @@ function welcome_landing_get_setting_group_id()
     );
 
     return $db->num_rows($query) ? (int)$db->fetch_field($query, 'gid') : 0;
+}
+
+function welcome_landing_admin_image_status_prepare()
+{
+    global $mybb, $plugins, $lang;
+
+    // This module hook runs after MyBB authenticates and checks settings permissions.
+    if (!defined('IN_ADMINCP') || !IN_ADMINCP || $mybb->request_method !== 'get'
+        || isset($mybb->input['search']) || isset($mybb->input['ajax_search'])) {
+        return;
+    }
+    $gid = $mybb->get_input('gid', MyBB::INPUT_INT);
+    if ($gid > 0 && $gid === welcome_landing_get_setting_group_id()) {
+        $lang->save_settings = welcome_landing_admin_lang('welcome_landing_images_save_exit', 'Save and exit');
+        $plugins->add_hook('admin_page_output_footer', 'welcome_landing_admin_image_status');
+        $plugins->add_hook('admin_form_output_submit_wrapper', 'welcome_landing_admin_save_stay_button');
+        $plugins->add_hook('admin_formcontainer_output_row', 'welcome_landing_admin_selection_layout');
+    }
+}
+
+function welcome_landing_admin_selection_layout(&$row)
+{
+    if (isset($row['row_options']['id'])
+        && $row['row_options']['id'] === 'row_setting_' . WEL_SETTING_NAME_PREFIX . 'image_selection_mode'
+        && $row['description'] !== '') {
+        $row['content'] .= '<div class="description">' . $row['description'] . '</div>';
+        $row['description'] = '';
+    }
+}
+
+function welcome_landing_admin_save_stay_button(&$buttons)
+{
+    global $form;
+
+    $buttons[] = $form->generate_submit_button(
+        welcome_landing_admin_lang('welcome_landing_images_save_stay', 'Save and stay'),
+        array('name' => 'wel_save_stay')
+    );
+}
+
+function welcome_landing_admin_save_stay()
+{
+    global $mybb, $lang;
+
+    if (!defined('IN_ADMINCP') || !IN_ADMINCP || $mybb->request_method !== 'post'
+        || !$mybb->get_input('wel_save_stay')) {
+        return;
+    }
+    $gid = $mybb->get_input('gid', MyBB::INPUT_INT);
+    if ($gid <= 0 || $gid !== welcome_landing_get_setting_group_id()) {
+        return;
+    }
+
+    // MyBB has validated the POST and saved/rebuilt settings before this hook.
+    // Replace only its final log/message/redirect sequence for this button.
+    log_admin_action();
+    flash_message($lang->success_settings_updated, 'success');
+    admin_redirect('index.php?module=config-settings&action=change&gid=' . $gid . '#welcome-landing-image-status');
+}
+
+function welcome_landing_image_status()
+{
+    global $db;
+
+    // Match the ACP's saved values, not a possibly stale OPcache copy of settings.php.
+    $names = array("'bburl'");
+    foreach (array('image_dir_path', 'image_url_path', 'image_prefix', 'fallback_image', 'image_selection_mode') as $key) {
+        $names[] = "'" . $db->escape_string(WEL_SETTING_NAME_PREFIX . $key) . "'";
+    }
+    $query = $db->simple_select('settings', 'name,value', 'name IN (' . implode(',', $names) . ')');
+    $saved = array();
+    while ($row = $db->fetch_array($query)) {
+        $saved[$row['name']] = $row['value'];
+    }
+    $setting = function ($key, $default) use ($saved) {
+        $name = WEL_SETTING_NAME_PREFIX . $key;
+        $value = isset($saved[$name]) ? trim((string)$saved[$name]) : '';
+        return $value === '' ? $default : $value;
+    };
+    $bburl = isset($saved['bburl']) ? rtrim(trim($saved['bburl']), '/') : '';
+    $directory = '/' . ltrim($setting('image_dir_path', WEL_IMAGE_DIR_REL_NORM), '/');
+    $urlPath = '/' . ltrim($setting('image_url_path', WEL_IMAGE_URL_REL_NORM), '/');
+    $prefix = $setting('image_prefix', WEL_IMAGE_PREFIX);
+    $fallback = $setting('fallback_image', WEL_FALLBACK_IMAGE);
+    $path = rtrim(MYBB_ROOT, '/\\') . $directory;
+    $folder = !is_dir($path) ? 'missing' : (is_readable($path) ? 'readable' : 'unreadable');
+    $files = welcome_landing_image_files($path, $prefix);
+    $fallbackPath = $path . '/' . $fallback;
+    $fallbackStatus = !is_file($fallbackPath) ? 'missing' : (is_readable($fallbackPath) ? 'readable' : 'unreadable');
+    $mode = $setting('image_selection_mode', 'random');
+    $modes = array('random' => 'Shuffle', 'independent' => 'Random', 'sequential' => 'Sequential', 'daily' => 'Daily');
+    if (!isset($modes[$mode])) {
+        $mode = 'random';
+    }
+
+    $warnings = array();
+    if ($folder !== 'readable') {
+        $warnings[] = 'folder_' . $folder;
+    }
+    if ($files === false) {
+        $warnings[] = 'scan_failed';
+    } elseif (count($files) === 0) {
+        $warnings[] = 'no_images';
+    } elseif (count($files) === 1) {
+        $warnings[] = 'one_image';
+    }
+    if ($fallbackStatus !== 'readable') {
+        $warnings[] = 'fallback_' . $fallbackStatus;
+    }
+
+    $sampleUrl = '';
+    if (!empty($files) || is_file($fallbackPath)) {
+        $sampleFile = !empty($files) ? $files[0] : $fallbackPath;
+        $sampleName = !empty($files) ? basename($sampleFile) : $fallback;
+        $sampleUrl = welcome_landing_image_url($bburl . $urlPath . '/' . $sampleName, $sampleFile);
+        if (!preg_match('~^https?://~i', $sampleUrl)) {
+            $sampleUrl = '';
+        }
+    }
+
+    return array(
+        'directory' => $directory,
+        'url_path' => $urlPath,
+        'sample_url' => $sampleUrl,
+        'folder' => $folder,
+        'prefix' => $prefix,
+        'count' => $files === false ? null : count($files),
+        'fallback' => $directory . '/' . $fallback,
+        'fallback_status' => $fallbackStatus,
+        'mode' => $mode,
+        'mode_label' => $modes[$mode],
+        'warnings' => $warnings,
+    );
+}
+
+function welcome_landing_admin_image_status()
+{
+    if (!defined('IN_ADMINCP') || !IN_ADMINCP) {
+        return;
+    }
+    $status = welcome_landing_image_status();
+    $text = function ($key, $fallback) {
+        return htmlspecialchars_uni(welcome_landing_admin_lang('welcome_landing_images_' . $key, $fallback));
+    };
+    $sample = $status['sample_url'] === '' ? $text('no_sample', 'No image file available')
+        : '<a href="' . htmlspecialchars_uni($status['sample_url']) . '" target="_blank" rel="noopener noreferrer">'
+            . $text('open_image', 'Open image (new tab)') . '</a>';
+    $states = array('missing' => 'Not found', 'unreadable' => 'Not readable', 'readable' => 'Readable');
+    $rows = array(
+        array('directory', 'Image folder (relative to forum root)', htmlspecialchars_uni($status['directory'])),
+        array('folder', 'Folder status', $text($status['folder'], $states[$status['folder']])),
+        array('url_path', 'Image URL path', htmlspecialchars_uni($status['url_path'])),
+        array('browser_access', 'Browser access', $text('browser_unchecked', 'Not checked') . ' - ' . $sample),
+        array('prefix', 'Filename prefix', htmlspecialchars_uni($status['prefix'])),
+        array('count', 'Matching image files', $status['count'] === null ? $text('unknown', 'Could not determine') : (string)$status['count']),
+        array('fallback', 'Fallback image (relative to forum root)', htmlspecialchars_uni($status['fallback'])),
+        array('fallback_status', 'Fallback status', $text($status['fallback_status'], $states[$status['fallback_status']])),
+        array('mode', 'Selection mode', $text('mode_' . $status['mode'], $status['mode_label'])),
+        array('scope', 'Check scope', $text('scope_value', 'Saved settings and server filesystem only; browser delivery and image contents not checked.')),
+    );
+    $table = new Table;
+    foreach ($rows as $row) {
+        $table->construct_cell($text($row[0], $row[1]), array('width' => '30%'));
+        $table->construct_cell('<span style="overflow-wrap:anywhere;">' . $row[2] . '</span>');
+        $table->construct_row();
+    }
+    $messages = array(
+        'folder_missing' => 'The image folder could not be found or accessed. Check the configured filesystem path.',
+        'folder_unreadable' => 'The image folder is not readable by PHP. Check its permissions.',
+        'scan_failed' => 'The image folder scan failed. The welcome page will attempt to use the fallback image.',
+        'no_images' => 'No matching images were found. The welcome page will attempt to use the fallback image.',
+        'one_image' => 'Only one image matches. All selection modes will show that image.',
+        'fallback_missing' => 'The fallback image could not be found or accessed. Matching images can still be used, but the backup image is unavailable.',
+        'fallback_unreadable' => 'The fallback image is not readable by PHP. Check its permissions; browser delivery has not been tested.',
+    );
+    if ($status['warnings']) {
+        $items = '';
+        foreach ($status['warnings'] as $warning) {
+            $items .= '<li><strong style="color:#b00020;">' . $text($warning, $messages[$warning]) . '</strong></li>';
+        }
+        $table->construct_cell($text('notes', 'Notes'));
+        $table->construct_cell('<ul>' . $items . '</ul>');
+        $table->construct_row();
+    }
+    echo '<div id="welcome-landing-image-status">';
+    $table->output($text('title', 'Background Image Status'));
+    echo '</div>';
 }
 
 function welcome_landing_default_templates()
@@ -508,11 +708,13 @@ HTML
 
       $(document).ready(function () {
         var images = {$imagesJson};
-        var idx = Math.floor(Math.random() * images.length);
-        var url = "url(" + images[idx] + ")";
+        var selected = typeof window.welcomeLandingSelectImage === 'function'
+          ? window.welcomeLandingSelectImage(images, {$imageSelectionJson})
+          : images[Math.floor(Math.random() * images.length)];
+        var url = "url(" + selected + ")";
 
         if (typeof window.welcomeLandingSetBackground === 'function') {
-          window.welcomeLandingSetBackground(images[idx]);
+          window.welcomeLandingSetBackground(selected);
         } else {
           $(".full").css("background-image", url);
         }
@@ -637,6 +839,10 @@ function welcome_landing_template_migrations()
             'key' => 'page_shell',
             'callback' => 'welcome_landing_migrate_page_shell_availability',
         ),
+        array(
+            'key' => 'page_shell',
+            'callback' => 'welcome_landing_migrate_image_selection',
+        ),
     );
 }
 
@@ -651,6 +857,39 @@ function welcome_landing_migrate_template($key, $template)
     }
 
     return welcome_landing_migrate_startup(welcome_landing_migrate_accessibility(welcome_landing_migrate_bootstrap5($template)));
+}
+
+function welcome_landing_migrate_image_selection($template)
+{
+    $old = <<<'HTML'
+        var idx = Math.floor(Math.random() * images.length);
+        var url = "url(" + images[idx] + ")";
+
+        if (typeof window.welcomeLandingSetBackground === 'function') {
+          window.welcomeLandingSetBackground(images[idx]);
+        } else {
+          $(".full").css("background-image", url);
+        }
+HTML;
+    $new = <<<'HTML'
+        var selected = typeof window.welcomeLandingSelectImage === 'function'
+          ? window.welcomeLandingSelectImage(images, {$imageSelectionJson})
+          : images[Math.floor(Math.random() * images.length)];
+        var url = "url(" + selected + ")";
+
+        if (typeof window.welcomeLandingSetBackground === 'function') {
+          window.welcomeLandingSetBackground(selected);
+        } else {
+          $(".full").css("background-image", url);
+        }
+HTML;
+    // Earlier migrations can leave mixed line endings inside the same block.
+    // Match that known block only, preserving all surrounding custom content.
+    $old = str_replace("\r\n", "\n", $old);
+    $pattern = '~' . str_replace("\n", '\r?\n', preg_quote($old, '~')) . '~';
+    return preg_replace_callback($pattern, function () use ($new) {
+        return $new;
+    }, $template);
 }
 
 function welcome_landing_migrate_startup($template)
@@ -1089,6 +1328,10 @@ $plugins->add_hook('global_start', 'welcome_landing_redirect_generic_login');
 $plugins->add_hook('global_start', 'welcome_landing_guest_gatekeeper');
 $plugins->add_hook('member_do_login_start', 'welcome_landing_prepare_native_login');
 $plugins->add_hook('member_login_end', 'welcome_landing_present_native_login', 100);
+if (defined('IN_ADMINCP') && IN_ADMINCP) {
+    $plugins->add_hook('admin_config_settings_change', 'welcome_landing_admin_image_status_prepare');
+    $plugins->add_hook('admin_config_settings_change_commit', 'welcome_landing_admin_save_stay', 1000);
+}
 
 /* ============================================================
  * IMPLEMENTATION
@@ -1359,6 +1602,42 @@ function welcome_landing_path_matches_public_prefix($path, $prefix)
     return $path === $prefix || strpos($path, $prefix . '/') === 0;
 }
 
+function welcome_landing_image_url($url, $file)
+{
+    if (!is_file($file)) {
+        return $url;
+    }
+
+    // Keep unchanged images cacheable without reading their contents. A file
+    // can disappear during an upload; metadata failure must not break the page.
+    $metadata = @stat($file);
+    if ($metadata === false) {
+        return $url;
+    }
+
+    return $url . '?v=' . $metadata['mtime'] . '-' . $metadata['size'];
+}
+
+function welcome_landing_image_files($imgDir, $imagePrefix)
+{
+    if (!is_dir($imgDir)) {
+        return array();
+    }
+    $matches = glob($imgDir . '/' . $imagePrefix . '*');
+    if ($matches === false) {
+        return false;
+    }
+    $files = array();
+    $allowedExts = $GLOBALS['WEL_ALLOWED_EXTS'];
+    foreach ($matches as $file) {
+        if (!is_file($file)) continue;
+        $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+        if ($ext === '' || !in_array($ext, $allowedExts, true)) continue;
+        $files[] = $file;
+    }
+    return $files;
+}
+
 function welcome_landing_image_json($bburl)
 {
     $imageDirRel = welcome_landing_setting_path('image_dir_path', WEL_IMAGE_DIR_REL_NORM);
@@ -1370,30 +1649,43 @@ function welcome_landing_image_json($bburl)
     $imgUrlBase = $bburl . $imageUrlRel;
 
     $images = array();
-    $allowedExts = $GLOBALS['WEL_ALLOWED_EXTS'];
-
-    if (is_dir($imgDir)) {
-        foreach (glob($imgDir . '/' . $imagePrefix . '*') ?: array() as $file) {
-            if (!is_file($file)) continue;
-
-            $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
-            if ($ext === '' || !in_array($ext, $allowedExts, true)) continue;
-
-            $images[] = $imgUrlBase . '/' . basename($file);
-        }
+    foreach (welcome_landing_image_files($imgDir, $imagePrefix) ?: array() as $file) {
+        $images[] = welcome_landing_image_url($imgUrlBase . '/' . basename($file), $file);
     }
 
     if (empty($images)) {
-        $images[] = $imgUrlBase . '/' . $fallbackImage;
+        $images[] = welcome_landing_image_url($imgUrlBase . '/' . $fallbackImage, $imgDir . '/' . $fallbackImage);
     }
 
     sort($images);
     $imagesJson = json_encode(array_values($images));
 
     if ($imagesJson === false) {
-        $imagesJson = json_encode(array($imgUrlBase . '/' . $fallbackImage));
+        $imagesJson = json_encode(array(welcome_landing_image_url($imgUrlBase . '/' . $fallbackImage, $imgDir . '/' . $fallbackImage)));
     }
     return $imagesJson;
+}
+
+function welcome_landing_image_selection_json($bburl)
+{
+    global $mybb;
+
+    $mode = welcome_landing_setting_text('image_selection_mode', 'random');
+    if (!in_array($mode, array('random', 'independent', 'sequential', 'daily'), true)) {
+        $mode = 'random';
+    }
+
+    // Match MyBB's guest date offset, not the browser or a member's timezone.
+    $offset = (float)$mybb->settings['timezoneoffset'];
+    if ($mybb->settings['dstcorrection'] == 1) {
+        ++$offset;
+    }
+
+    return json_encode(array(
+        'mode' => $mode,
+        'day' => (int)floor((TIME_NOW + $offset * 3600) / 86400),
+        'scope' => rtrim($bburl, '/'),
+    ), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
 }
 
 function welcome_landing_render($bburl, $assetBase, $redirect, $postCode, $openLoginModal = false, $prefillUsername = '', $loginErrorHtml = '', $loginCaptchaHtml = '', $loginHeadHtml = '')
@@ -1503,6 +1795,7 @@ function welcome_landing_render($bburl, $assetBase, $redirect, $postCode, $openL
         'loginModalHtml' => $loginModalHtml,
         'aboutModalHtml' => $aboutModalHtml,
         'imagesJson' => $imagesJson,
+        'imageSelectionJson' => welcome_landing_image_selection_json($bburl),
         'openLoginModalJs' => $openLoginModalJs,
         'loginHeadHtml' => $loginHeadHtml,
     ));
